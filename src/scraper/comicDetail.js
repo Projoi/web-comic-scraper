@@ -1,26 +1,38 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-const { listUrl } = require('../config');
+const puppeteer = require('puppeteer');
+const {comicDetailConfig} = require("../configs/komiku.id")
 
 async function scrapeComicDetail(url) {
-	const res = await axios.get(url);
-	const $ = cheerio.load(res.data);
+	const browser = await puppeteer.launch({ headless: 'new' });
+	const page = await browser.newPage();
 
-	const title = $('div#Judul h1 span').text().trim();
-	const description = $('div#Judul p.desc').text().trim();
-	const chapters = [];
-
-	$('tr td.judulseries').each((i, el) => {
-		const chapterTitle = $(el).find('a').attr('title').trim();
-		const chapterUrl = $(el).find('a').attr('href');
-		chapters.push({ title: chapterTitle, url: listUrl+chapterUrl });
+	await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+	await page.goto(url, {
+		waitUntil: 'networkidle2',
+		timeout: 30000
 	});
 
-	return {
-		title,
-		description,
-		chapters,
-	};
+	// Tunggu elemen penting muncul
+	await page.waitForSelector(comicDetailConfig.titleSelector, { timeout: 10000 });
+
+	const data = await page.evaluate((config) => {
+		const title = document.querySelector(config.titleSelector)?.innerText.trim() || '';
+		const description = document.querySelector(config.descSelector)?.innerText.trim() || '';
+
+		const chapterNodes = document.querySelectorAll(config.chaptersList);
+		const chapters = Array.from(chapterNodes).map(li => {
+			const link = li.querySelector(config.chapterLink);
+			const titleSpan = li.querySelector(config.chapterTitle);
+			return {
+				title: titleSpan?.innerText.trim() || '',
+				url: link?.href || '',
+			};
+		});
+
+		return { title, description, chapters };
+	}, comicDetailConfig);
+
+	await browser.close();
+	return data;
 }
 
 module.exports = scrapeComicDetail;
